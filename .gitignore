@@ -1,0 +1,38 @@
+# Stack
+.stack-work/
+
+# Cabal
+dist/
+dist-*
+dist-newstyle/
+cabal-dev/
+cabal.project.local
+cabal.project.local~
+.cabal-sandbox/
+cabal.sandbox.config
+
+# GHC compiler and build artifacts
+*.o
+*.hi
+*.hie
+*.chi
+*.chs.h
+*.dyn_o
+*.dyn_hi
+
+# Profiling and coverage
+*.prof
+*.aux
+*.hp
+*.eventlog
+.hpc/
+
+# Haskell Language Server (HLS) / IDEs
+.hie-cache/
+.haskell-language-server/
+.vscode/
+
+# OS and Editor temporary files
+.DS_Store
+*~
+*.swp
