@@ -15,11 +15,17 @@ import System.OsPath (OsPath, decodeFS, osp, takeExtension, takeFileName, unsafe
 
 main :: IO ()
 main = do
-  files <- musicDir |> directories |> mapM mp3FilesInDirectory |> fmap concat
-  result <- files |> mapM parseMp3Info |> fmap sequence
+  files <- findMp3Files musicDir
+  result <- extractMp3Info files
   case result of
     Left errMsg -> TIO.putStrLn errMsg
     Right mp3Infos -> showResult mp3Infos
+
+findMp3Files :: OsPath -> IO [OsPath]
+findMp3Files = subDirectories .> mapM mp3FilesInDirectory .> fmap concat
+
+extractMp3Info :: [OsPath] -> IO (Either T.Text [Mp3Info])
+extractMp3Info = mapM parseMp3Info .> fmap sequence
 
 showResult :: [Mp3Info] -> IO ()
 showResult mp3Infos =
@@ -43,8 +49,8 @@ osPathToTextFS = decodeFS .> fmap T.pack
 musicDir :: OsPath
 musicDir = [osp|/mnt/c/Users/vivas/Music|]
 
-directories :: OsPath -> [OsPath]
-directories parentPath =
+subDirectories :: OsPath -> [OsPath]
+subDirectories parentPath =
   [parentPath </> dirName n | n <- [1 .. 14]]
   where
     dirName n = unsafeEncodeUtf "メドレー" <> intToOsPath n
