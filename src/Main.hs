@@ -28,9 +28,9 @@ extractMp3Info :: [OsPath] -> IO (Either T.Text [Mp3Info])
 extractMp3Info = mapM parseMp3Info .> fmap sequence
 
 showResult :: [Mp3Info] -> IO ()
-showResult mp3Infos =
-  mapM formatMp3Info mp3Infos
-    >>= mapM_ TIO.putStrLn
+showResult mp3Infos = do
+  texts <- mapM formatMp3Info mp3Infos
+  mapM_ TIO.putStrLn texts
 
 formatMp3Info :: Mp3Info -> IO T.Text
 formatMp3Info mp3Info = do
