@@ -19,6 +19,8 @@ dependencies:
 - filepath
 - directory
 - monatone
+- raw-strings-qq
+- regex-tdfa
 
 ghc-options:
 - -Wall

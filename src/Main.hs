@@ -3,45 +3,43 @@
 
 module Main (main) where
 
-import Data.List (sort)
+import Data.List (find, sort)
 import Data.Maybe (fromMaybe)
+import Data.Text (takeEnd)
 import qualified Data.Text as T
 import qualified Data.Text.IO as TIO
+import qualified Data.Text.Read as TR
 import Flow
 import Monatone.Common (parseMetadata)
 import Monatone.Metadata (Metadata (album, artist, title, trackNumber))
 import System.Directory.OsPath (listDirectory)
 import System.OsPath (OsPath, decodeFS, osp, takeExtension, takeFileName, unsafeEncodeUtf, (</>))
+import Text.RawString.QQ (r)
+import Text.Regex.TDFA ((=~))
 
 main :: IO ()
 main = do
   files <- findMp3Files musicDir
-  result <- extractMp3Info files
-  case result of
+  infoResult <- extractMp3Info files
+  case infoResult of
     Left errMsg -> TIO.putStrLn errMsg
-    Right mp3Infos -> showResult mp3Infos
+    Right mp3Infos -> do
+      unmatchedResult <- findUnmatchedPosition mp3Infos
+      showResult unmatchedResult
 
 findMp3Files :: OsPath -> IO [OsPath]
-findMp3Files = subDirectories .> mapM mp3FilesInDirectory .> fmap concat
+findMp3Files = medleyDirectories .> mapM mp3FilesInDirectory .> fmap concat
 
 extractMp3Info :: [OsPath] -> IO (Either T.Text [Mp3Info])
-extractMp3Info = mapM parseMp3Info .> fmap sequence
+extractMp3Info paths = do
+  parseResults <- mapM parseMp3Info paths
+  parseResults |> sequence |> return
 
-showResult :: [Mp3Info] -> IO ()
-showResult mp3Infos = do
-  texts <- mapM formatMp3Info mp3Infos
-  mapM_ TIO.putStrLn texts
-
-formatMp3Info :: Mp3Info -> IO T.Text
-formatMp3Info mp3Info = do
-  fname <- osPathToTextFS . mp3InfoFileName $ mp3Info
-  return $
-    T.intercalate
-      "\t"
-      [ fname,
-        mp3InfoAlbum mp3Info,
-        T.pack . show . mp3InfoTrackNumber $ mp3Info
-      ]
+showResult :: Maybe (SongPosition, SongPosition) -> IO ()
+showResult Nothing =
+  TIO.putStrLn "No unmatched found."
+showResult (Just unmatched) =
+  unmatched |> formatUnmatchedPosition |> TIO.putStrLn
 
 osPathToTextFS :: OsPath -> IO T.Text
 osPathToTextFS = decodeFS .> fmap T.pack
@@ -49,9 +47,9 @@ osPathToTextFS = decodeFS .> fmap T.pack
 musicDir :: OsPath
 musicDir = [osp|/mnt/c/Users/vivas/Music|]
 
-subDirectories :: OsPath -> [OsPath]
-subDirectories parentPath =
-  [parentPath </> dirName n | n <- [1 .. 14]]
+medleyDirectories :: OsPath -> [OsPath]
+medleyDirectories parentPath =
+  [parentPath </> dirName n | n <- [1 .. 14 :: Int]]
   where
     dirName n = unsafeEncodeUtf "メドレー" <> intToOsPath n
     intToOsPath = unsafeEncodeUtf . zeroPad 2 . show
@@ -59,8 +57,8 @@ subDirectories parentPath =
 
 mp3FilesInDirectory :: OsPath -> IO [OsPath]
 mp3FilesInDirectory path = do
-  dirs <- listDirectory path
-  dirs
+  files <- listDirectory path
+  files
     |> filterMp3
     |> sort
     |> map editAbsPath
@@ -87,6 +85,75 @@ parseMp3Info path = do
         |> Right
         |> return
 
+extractSongPositionFromFileName :: Mp3Info -> IO SongPosition
+extractSongPositionFromFileName mp3Info = do
+  fileNameText <- mp3Info |> mp3InfoFileName |> osPathToTextFS
+  let numbers = extractNumbers fileNameText
+
+  case numbers of
+    [n1, n2] ->
+      SongPosition
+        { songPositionAlbumNumber = textToInt n1,
+          songPositionTrackNumber = textToInt n2
+        }
+        |> return
+    _ ->
+      SongPosition
+        { songPositionAlbumNumber = 0,
+          songPositionTrackNumber = 0
+        }
+        |> return
+  where
+    extractNumbers :: T.Text -> [T.Text]
+    extractNumbers fname =
+      ((fname =~ regExp) :: (T.Text, T.Text, T.Text, [T.Text]))
+        |> \(_, _, _, subs) -> subs
+
+    regExp :: T.Text
+    regExp = [r|\`([0-9]{2})-([0-9]{2})\.mp3\'|]
+
+extractSongPositionFromMp3Tag :: Mp3Info -> SongPosition
+extractSongPositionFromMp3Tag mp3Info =
+  SongPosition
+    { songPositionAlbumNumber = alNumber,
+      songPositionTrackNumber = trNumber
+    }
+  where
+    alNumber = mp3Info |> mp3InfoAlbum |> takeEnd 2 |> textToInt
+    trNumber = mp3InfoTrackNumber mp3Info
+
+textToInt :: T.Text -> Int
+textToInt t = case TR.decimal t of
+  Right (n, _) -> n
+  _ -> 0
+
+findUnmatchedPosition :: [Mp3Info] -> IO (Maybe (SongPosition, SongPosition))
+findUnmatchedPosition mp3Infos = do
+  spsFromFileName <- mapM extractSongPositionFromFileName mp3Infos
+  let spsFromTag =
+        map extractSongPositionFromMp3Tag mp3Infos
+  zip spsFromFileName spsFromTag
+    |> find positionsAreUnmatched
+    |> return
+  where
+    positionsAreUnmatched (p1, p2) = p1 /= p2
+
+formatUnmatchedPosition :: (SongPosition, SongPosition) -> T.Text
+formatUnmatchedPosition (psFromFileName, psFromMp3Tag) =
+  "fileName"
+    <> formatSongPosition psFromFileName
+    <> "-"
+    <> "tag"
+    <> formatSongPosition psFromMp3Tag
+
+formatSongPosition :: SongPosition -> T.Text
+formatSongPosition
+  SongPosition {songPositionAlbumNumber = alNumber, songPositionTrackNumber = trNumber} =
+    "(Album:" <> intToText alNumber <> ", Track:" <> intToText trNumber <> ")"
+
+intToText :: Int -> T.Text
+intToText = show .> T.pack
+
 data Mp3Info = Mp3Info
   { mp3InfoFileName :: OsPath,
     mp3InfoPath :: OsPath,
@@ -95,3 +162,9 @@ data Mp3Info = Mp3Info
     mp3InfoAlbum :: T.Text,
     mp3InfoTrackNumber :: Int
   }
+
+data SongPosition = SongPosition
+  { songPositionAlbumNumber :: Int,
+    songPositionTrackNumber :: Int
+  }
+  deriving (Eq)
